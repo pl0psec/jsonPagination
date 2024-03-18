@@ -4,10 +4,8 @@ customizable authentication, and the option to disable SSL verification for HTTP
 """
 
 import logging
-import time
 from queue import Queue
 from threading import Thread, Lock
-from urllib.parse import urlencode
 
 import requests
 from requests.exceptions import RequestException
@@ -17,16 +15,21 @@ from tqdm import tqdm
 
 class LoginFailedException(Exception):
     """Exception raised when login fails."""
+
     def __init__(self, status_code, message="Login failed"):
         super().__init__(f"{message}. Status code: {status_code}")
 
+
 class DataFetchFailedException(Exception):
     """Exception raised when fetching data fails."""
+
     def __init__(self, status_code, url, message="Failed to fetch data"):
         super().__init__(f"{message}. Status code: {status_code}, URL: {url}")
 
+
 class AuthenticationFailed(Exception):
     """Exception raised when authentication fails."""
+
     def __init__(self, message="Authentication failed"):
         super().__init__(message)
 
@@ -37,7 +40,7 @@ class Paginator:
     customizable authentication, and the option to disable SSL verification for HTTP requests.
     """
 
-    def __init__(self, url, login_url=None, auth_data=None, current_page_field='page',
+    def __init__(self, login_url=None, auth_data=None, current_page_field='page',
                  per_page_field='per_page', total_count_field='total', per_page=None,
                  max_threads=5, download_one_page_only=False, verify_ssl=True, data_field='data',
                  log_level='INFO'):
@@ -64,7 +67,6 @@ class Paginator:
         self.logger.setLevel(logging.DEBUG)  # Set logger to debug level
 
         # Ensure there is at least one handler
-        # Ensure there is at least one handler
         if not self.logger.handlers:
             console_handler = logging.StreamHandler()
             console_handler.setLevel(logging.getLevelName(
@@ -74,9 +76,6 @@ class Paginator:
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
 
-        self.logger.info("Initializing Paginator with URL: %s", url)
-
-        self.url = url
         self.login_url = login_url
         self.auth_data = auth_data
         self.current_page_field = current_page_field
@@ -84,20 +83,57 @@ class Paginator:
         self.total_count_field = total_count_field
         self.per_page = per_page
         self.max_threads = max_threads
+        self.retry = 5
         self.timeout = 60
         self.download_one_page_only = download_one_page_only
         self.verify_ssl = verify_ssl
-        self.data_field = data_field  # New parameter to specify the data field
+        self.data_field = data_field
         self.token = None
         self.headers = {}
         self.data_queue = Queue()
-        self.results = []
         self.retry_lock = Lock()
         self.is_retrying = False
 
         if not self.verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             self.logger.debug("SSL verification is disabled for all requests.")
+
+    def flatten_json(self, y):
+        """
+        Flattens a nested JSON object into a single level dictionary with keys as paths to nested
+        values.
+
+        This method recursively traverses the nested JSON object, combining keys from different 
+        levels into a single key separated by underscores. It handles both nested dictionaries
+        and lists.
+
+        Args:
+            y (dict or list): The JSON object (or a part of it) to be flattened.
+
+        Returns:
+            dict: A single-level dictionary where each key represents a path through the original 
+                 nested structure, and each value is the value at that path.
+
+        Example:
+            Given a nested JSON object like {"a": {"b": 1, "c": {"d": 2}}},
+            the output will be {"a_b": 1, "a_c_d": 2}.
+        """
+        out = {}
+
+        def flatten(x, name=''):
+            if isinstance(x, dict):
+                for a in x:
+                    flatten(x[a], name + a + '_')
+            elif isinstance(x, list):
+                i = 0
+                for a in x:
+                    flatten(a, name + str(i) + '_')
+                    i += 1
+            else:
+                out[name[:-1]] = x
+
+        flatten(y)
+        return out
 
     def set_log_level(self, log_level):
         """
@@ -141,139 +177,118 @@ class Paginator:
                 "Login failed with status code %d.", response.status_code)
             raise LoginFailedException(response.status_code)
 
-    def fetch_page(self, page, pbar=None):
+    def fetch_page(self, url, params, page, results, pbar=None):
         """
         Fetches a single page of data from the API and updates the progress bar.
 
         Args:
+            url (str): The API endpoint URL.
+            params (dict): Additional parameters to pass in the request.
             page (int): The page number to fetch.
+            results (list): The list to which fetched data will be appended.
             pbar (tqdm, optional): A tqdm progress bar instance to update with progress.
         """
-        retries = 3
-        timeout = 30
+        retries = self.retry
 
         while retries > 0:
-            params = {self.current_page_field: page,
-                      self.per_page_field: self.per_page}
-            query_string = urlencode(params)
-            full_url = f"{self.url}?{query_string}"
-
-            self.logger.debug(
-                "Attempting to fetch page %d with full URL: GET %s", page, full_url)
-
             try:
                 response = requests.get(
-                    self.url, headers=self.headers, params=params, timeout=timeout,
+                    url, headers=self.headers, params=params, timeout=self.timeout,
                     verify=self.verify_ssl)
-                self.logger.debug(
-                    "Request made to %s, response status: %d", full_url, response.status_code)
-
                 if response.status_code == 200:
                     data = response.json()
                     fetched_data = data.get(
                         self.data_field, []) if self.data_field else data
-                    self.data_queue.put(fetched_data)
-
+                    with self.retry_lock:  # Ensure thread-safe addition to results
+                        results.extend(fetched_data)
                     if pbar:
                         pbar.update(len(fetched_data))
+                    return
 
-                    self.logger.debug(
-                        "Successfully fetched page %d, retrieved %d records.",
-                        page, len(fetched_data))
-                    return  # Exit the loop on successful fetch
-
-                self.logger.error(
-                    "Failed to fetch page %d: HTTP %d", page, response.status_code)
+                # Removed "elif" and used "if" directly because "return" exits the function
+                # if the condition is true
                 if response.status_code in [401, 403]:
                     raise AuthenticationFailed(
                         f"Authentication failed with status code {response.status_code}")
-
-            except requests.exceptions.Timeout as e:
+                retries -= 1
                 self.logger.warning(
-                    "Timeout occurred fetching page %d: %s", page, e)
+                    "Retrying page %d, remaining retries: %d", page, retries)
+            except RequestException as e:
+                self.logger.error(
+                    "Network error fetching page %d: %s", page, e)
                 retries -= 1
 
-            except RequestException as e:
-                self.logger.error("Network error fetching page %d: %s", page, e)
-                break
-
-            except Exception as e:
-                self.logger.error("Unexpected error fetching page %d: %s", page, e)
-                break
-
-            finally:
-                with self.retry_lock:
-                    self.is_retrying = False
-
-        if retries == 0:
-            self.logger.error(
-                "Failed to fetch page %d after %d retries.", page, 3)
-
-    def download_all_pages(self):
+    def fetch_all_pages(self, url, params=None, flatten_json=False):
         """
-        Downloads all pages of data from the API using multithreading.
+        Fetches all pages of data from a paginated API endpoint, optionally flattening the JSON
+        structure of the results.
 
-        This method fetches each page of data concurrently and aggregates the results.
-        It respects the pagination settings and handles authentication if necessary.
+        This method handles authentication (if necessary), iterates over all pages of the endpoint,
+        and can flatten the nested JSON structure of the returned data.
+
+        Args:
+            url (str): The URL of the API endpoint to fetch data from.
+            params (dict, optional): Additional query parameters to include in the request.
+            flatten_json (bool, optional): If set to True, the returned JSON structure will be
+                                        flattened. Defaults to False.
+
+        Returns:
+            list or dict: A list of JSON objects fetched from the API if `flatten_json` is False.
+                        If `flatten_json` is True, a single-level dictionary representing the
+                        flattened JSON structure is returned.
+
+        Raises:
+            DataFetchFailedException: If the initial request to the API fails.
+            ValueError: If required pagination fields are missing in the API response.
+
+        Note:
+            The method will automatically paginate through all available pages based on the
+            response's pagination fields. If pagination fields are missing, it returns the raw
+            response from the first request.
         """
-        start_time = time.time()
+        if not params:
+            params = {}
 
         if self.login_url and not self.token and self.auth_data:
             self.login()
 
-        response = requests.get(
-            self.url, headers=self.headers, verify=self.verify_ssl, timeout=self.timeout)
+        response = requests.get(url, headers=self.headers, params=params,
+                                verify=self.verify_ssl, timeout=self.timeout)
         if response.status_code != 200:
-            self.logger.error("Failed to fetch initial data from %s", self.url)
-            raise DataFetchFailedException(response.status_code, self.url)
+            raise DataFetchFailedException(response.status_code, url)
 
         json_data = response.json()
         total_count = json_data.get(self.total_count_field)
-        per_page = self.per_page or json_data.get(self.per_page_field)
+        per_page = json_data.get(self.per_page_field)
 
         if total_count is None or per_page is None:
-            self.logger.error("Pagination data missing or invalid")
-            raise ValueError(
-                f"Pagination data missing: total_count={total_count}, per_page={per_page}")
+            self.logger.warning(
+                "Pagination fields missing, returning raw response")
+            return self.flatten_json(json_data) if flatten_json else json_data
 
+        self.per_page = params.get(
+            self.per_page_field, self.per_page or per_page)
         total_pages = 1 if self.download_one_page_only else - \
-            (-total_count // per_page)
-        self.logger.info(
-            "Total pages to fetch: %d, Total records to download: %d", total_pages, total_count)
+            (-total_count // self.per_page)
 
-        self.logger.info(
-            "Downloading %d records across %d pages...",total_count, total_pages)
-
+        results = []
         with tqdm(total=total_count, desc="Downloading records") as pbar:
             threads = []
             for page in range(1, total_pages + 1):
-                while len(threads) >= self.max_threads:
-                    for t in threads:
-                        t.join()
-                    threads = []  # Clear out threads that have finished
-                thread = Thread(target=self.fetch_page, args=(page, pbar))
+                thread = Thread(target=self.fetch_page, args=(
+                    url, params.copy(), page, results, pbar))
                 thread.start()
                 threads.append(thread)
 
-            # Wait for any remaining threads to complete
+                if len(threads) >= self.max_threads:
+                    for t in threads:
+                        t.join()
+                    threads = []
+
             for t in threads:
                 t.join()
 
         while not self.data_queue.empty():
-            data = self.data_queue.get()
-            self.results.extend(data)
+            results.extend(self.data_queue.get())
 
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        self.logger.info("Completed downloading all pages in %s",
-                         time.strftime('%H:%M:%S', time.gmtime(elapsed_time)))
-
-    def get_results(self):
-        """
-        Returns the accumulated results from all fetched pages.
-
-        Returns:
-            list: A list of JSON objects fetched from the API.
-        """
-        self.logger.info("Retrieving results from fetched data.")
-        return self.results
+        return [self.flatten_json(item) if flatten_json else item for item in results]

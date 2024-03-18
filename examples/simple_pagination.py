@@ -8,17 +8,21 @@ from jsonPagination import Paginator
 def main():
     """Main function to demonstrate Paginator usage."""
     try:
-        paginator = Paginator(
-            url='https://reqres.in/api/users',
-            max_threads=5
-        )
+        paginator = Paginator()
 
-        paginator.download_all_pages()
-        results = paginator.get_results()
+        # API with pagination
+        results = paginator.fetch_all_pages(url='https://reqres.in/api/users')
         print("Downloaded data:")
         print(results)
+
+        # API with no pagination
+        results = paginator.fetch_all_pages(url='https://reqres.in/api/users/2')
+        print("Downloaded data:")
+        print(results)
+
     except Exception as e:  # pylint: disable=W0718
         print(f"An error occurred: {e}")
+
 
 if __name__ == "__main__":
     main()
