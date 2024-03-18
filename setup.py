@@ -13,7 +13,7 @@ with open('README.md', 'r', encoding='utf-8') as f:
 
 setup(
     name='jsonPagination',
-    version='0.1.0',
+    version='0.1.1',
     author='pl0psec',
     author_email='contact@pl0psec.com',
     description='A versatile JSON data downloader with pagination and multithreading support.',
