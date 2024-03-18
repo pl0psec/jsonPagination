@@ -10,8 +10,7 @@ def main():
     try:
         paginator = Paginator(
             url='https://reqres.in/api/users',
-            max_threads=5,
-            download_one_page_only=False
+            max_threads=5
         )
 
         paginator.download_all_pages()

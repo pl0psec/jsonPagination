@@ -27,15 +27,8 @@ Here's a quick example to get you started:
 from jsonPagination.paginator import Paginator
 
 paginator = Paginator(
-    url='https://api.example.com/data',
-    login_url='https://api.example.com/login',
-    username='your_username',
-    password='your_password',
-    current_page_field='currentPage',
-    per_page_field='perPage',
-    total_count_field='totalCount',
-    max_threads=5,
-    download_one_page_only=False
+    url='https://reqres.in/api/users',
+    max_threads=5
 )
 
 paginator.download_all_pages()
@@ -51,12 +44,18 @@ When instantiating the `Paginator` class, you can configure the following parame
 
 - `url`: The API endpoint URL.
 - `login_url` (optional): The URL to authenticate and retrieve a bearer token.
-- `username` and `password` (optional): Credentials for authentication if required by the API.
-- `current_page_field`: The JSON field name for the current page number (default: 'currentPage').
-- `per_page_field`: The JSON field name for the number of items per page (default: 'perPage').
-- `total_count_field`: The JSON field name for the total count of items (default: 'totalCount').
+- `auth_data` (optional): A dictionary containing authentication data required by the login endpoint, typically including `username` and `password`.
+- `current_page_field`: The JSON field name for the current page number (default: 'page').
+- `per_page_field`: The JSON field name for the number of items per page (default: 'per_page').
+- `total_count_field`: The JSON field name for the total count of items (default: 'total').
+- `per_page` (optional): Number of items per page to request from the API. If not set, the default provided by the API is used.
 - `max_threads`: The maximum number of threads for parallel requests (default: 5).
 - `download_one_page_only`: Whether to download only the first page of data or paginate through all available data (default: False).
+- `verify_ssl`: Whether to verify SSL certificates for HTTP requests (default: True).
+- `data_field`: Specific JSON field name from which to extract the data (default: 'data').
+- `log_level`: The logging level for the Paginator instance (default: 'INFO').
+
+These parameters allow for customization of the pagination behavior, including how the Paginator interacts with the API, how it handles authentication, and how it processes the retrieved data.
 
 ## Contributing
 
