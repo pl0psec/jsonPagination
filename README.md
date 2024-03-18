@@ -15,7 +15,7 @@
 
 ## Installation
 
-(WIP) soon: To install `jsonPagination`, simply use pip:
+To install `jsonPagination`, simply use pip:
 
     pip install jsonPagination
 

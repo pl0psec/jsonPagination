@@ -134,8 +134,8 @@ class Paginator:
         if response.status_code == 200:
             self.token = response.json().get('token')
             self.headers['Authorization'] = f'Bearer {self.token}'
-            self.logger.error(
-                "Login failed with status code %d.", response.status_code)
+            self.logger.info(
+                "Login successful with status code %d.", response.status_code)
         else:
             self.logger.error(
                 "Login failed with status code %d.", response.status_code)
