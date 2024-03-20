@@ -6,11 +6,13 @@ customizable authentication, and the option to disable SSL verification for HTTP
 import logging
 from queue import Queue
 from threading import Thread, Lock
+import time
 
 import requests
 from requests.exceptions import RequestException
 import urllib3
 from tqdm import tqdm
+from ratelimit import limits, sleep_and_retry
 
 
 class LoginFailedException(Exception):
@@ -34,6 +36,11 @@ class AuthenticationFailed(Exception):
         super().__init__(message)
 
 
+def no_op_decorator(func):
+    """A no-operation decorator that just returns the function unmodified."""
+    return func
+
+
 class Paginator:
     """
     A class for fetching and paginating JSON data from APIs with support for multithreading,
@@ -41,25 +48,27 @@ class Paginator:
     """
 
     def __init__(self, login_url=None, auth_data=None, current_page_field='page',
-                 per_page_field='per_page', total_count_field='total', per_page=None,
-                 max_threads=5, download_one_page_only=False, verify_ssl=True, data_field='data',
-                 log_level='INFO'):
+                 start_index_field=None, per_page_field='per_page', total_count_field='total',
+                 items_per_page=None, max_threads=5, download_one_page_only=False, verify_ssl=True,
+                 data_field='data', log_level='INFO', retry_delay=30, api_rate_limit=None):
         """
         Initializes the Paginator with the given configuration.
 
         Args:
-            url (str): The API endpoint URL.
-            login_url (str, optional): The URL to authenticate and retrieve a bearer token.
-            auth_data (dict, optional): Authentication data required by the login endpoint.
-            current_page_field (str, optional): JSON field name for the current page number.
-            per_page_field (str, optional): JSON field name for the number of items per page.
-            total_count_field (str, optional): JSON field name for the total count of items.
-            per_page (int, optional): Number of items per page to request from the API.
-            max_threads (int, optional): Maximum number of threads for parallel requests.
-            download_one_page_only (bool, optional): Whether to download only the first page
-            of data.
+            login_url (str, optional): URL for authentication to retrieve a token.
+            auth_data (dict, optional): Credentials required for the login endpoint.
+            current_page_field (str, optional): Field name for the current page number in the API request.
+            start_index_field (str, optional): Field name for the starting index in the API request (used for APIs that paginate by index rather than by page number).
+            per_page_field (str, optional): Field name for the number of items per page in the API request.
+            total_count_field (str, optional): Field name in the API response that holds the total number of items.
+            per_page (int, optional): The number of items to request per page.
+            max_threads (int, optional): Maximum number of threads to use for parallel requests.
+            download_one_page_only (bool, optional): Whether to fetch only the first page of data.
             verify_ssl (bool, optional): Whether to verify SSL certificates for HTTP requests.
-            data_field (str, optional): Specific JSON field name from which to extract the data.
+            data_field (str, optional): Field name from which to extract the data in the API response.
+            log_level (str, optional): Logging level for the paginator.
+            retry_delay (int, optional): Time in seconds to wait before retrying a failed request.
+            api_rate_limit (tuple, optional): Rate limit settings as a tuple (calls, period) where 'calls' is the number of allowed calls in 'period' seconds.
         """
 
         # Setup logger with a console handler
@@ -69,26 +78,39 @@ class Paginator:
         # Ensure there is at least one handler
         if not self.logger.handlers:
             console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.getLevelName(
-                log_level))  # Set handler level
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            console_handler.setLevel(logging.getLevelName(log_level))  # Set handler level
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
 
+        # Auth
         self.login_url = login_url
         self.auth_data = auth_data
+        self.token = None
+
+        # HTTP
+        self.verify_ssl = verify_ssl
+
+        # Pagination
+        self.data_field = data_field
         self.current_page_field = current_page_field
         self.per_page_field = per_page_field
         self.total_count_field = total_count_field
-        self.per_page = per_page
+        self.items_per_page = items_per_page
+        self.download_one_page_only = download_one_page_only
+
+        self.start_index_field = start_index_field
+
+        # Threading
         self.max_threads = max_threads
         self.retry = 5
+        self.retry_delay = retry_delay
+
+        # Ratelimit
+        self.api_rate_limit = api_rate_limit
         self.timeout = 60
-        self.download_one_page_only = download_one_page_only
-        self.verify_ssl = verify_ssl
-        self.data_field = data_field
-        self.token = None
+
+        # Where to classify this ?
         self.headers = {}
         self.data_queue = Queue()
         self.retry_lock = Lock()
@@ -177,6 +199,8 @@ class Paginator:
                 "Login failed with status code %d.", response.status_code)
             raise LoginFailedException(response.status_code)
 
+    @sleep_and_retry
+    @limits(calls=2, period=60)
     def fetch_page(self, url, params, page, results, pbar=None):
         """
         Fetches a single page of data from the API and updates the progress bar.
@@ -188,35 +212,46 @@ class Paginator:
             results (list): The list to which fetched data will be appended.
             pbar (tqdm, optional): A tqdm progress bar instance to update with progress.
         """
-        retries = self.retry
+        def make_request():
+            # Set the pagination parameters
+            if self.start_index_field and self.per_page_field:
+                params[self.per_page_field] = self.items_per_page
+                params[self.start_index_field] = page * self.items_per_page
 
+            # Construct the full URL for logging
+            full_url = f"{url}?{requests.compat.urlencode(params)}"
+            self.logger.debug("Requesting URL: %s", full_url)
+
+            response = requests.get(url, headers=self.headers, params=params, timeout=self.timeout, verify=self.verify_ssl)
+            if response.status_code == 200:
+                data = response.json()
+                fetched_data = data.get(self.data_field, []) if self.data_field else data
+                with self.retry_lock:
+                    results.extend(fetched_data)
+                if pbar:
+                    pbar.update(len(fetched_data))
+                return True  # Successful fetch
+
+            if response.status_code in [401, 403]:
+                self.logger.error("Authentication failed with status code %d : %s", response.status_code, response.text)
+                raise AuthenticationFailed(f"Authentication failed with status code {response.status_code}")
+
+            return False  # Indicate that fetch was unsuccessful
+
+        retries = self.retry
         while retries > 0:
             try:
-                response = requests.get(
-                    url, headers=self.headers, params=params, timeout=self.timeout,
-                    verify=self.verify_ssl)
-                if response.status_code == 200:
-                    data = response.json()
-                    fetched_data = data.get(
-                        self.data_field, []) if self.data_field else data
-                    with self.retry_lock:  # Ensure thread-safe addition to results
-                        results.extend(fetched_data)
-                    if pbar:
-                        pbar.update(len(fetched_data))
+                success = make_request()
+                if success:
                     return
 
-                # Removed "elif" and used "if" directly because "return" exits the function
-                # if the condition is true
-                if response.status_code in [401, 403]:
-                    raise AuthenticationFailed(
-                        f"Authentication failed with status code {response.status_code}")
                 retries -= 1
-                self.logger.warning(
-                    "Retrying page %d, remaining retries: %d", page, retries)
+                self.logger.warning(f"Retrying page {page} after {self.retry_delay} seconds, remaining retries: {retries}")
+                time.sleep(self.retry_delay)  # Wait before retrying
             except RequestException as e:
-                self.logger.error(
-                    "Network error fetching page %d: %s", page, e)
+                self.logger.error(f"Network error fetching page {page}: {e}")
                 retries -= 1
+                time.sleep(self.retry_delay)  # Wait before retrying
 
     def fetch_all_pages(self, url, params=None, flatten_json=False):
         """
@@ -252,8 +287,7 @@ class Paginator:
         if self.login_url and not self.token and self.auth_data:
             self.login()
 
-        response = requests.get(url, headers=self.headers, params=params,
-                                verify=self.verify_ssl, timeout=self.timeout)
+        response = requests.get(url, headers=self.headers, params=params, verify=self.verify_ssl, timeout=self.timeout)
         if response.status_code != 200:
             raise DataFetchFailedException(response.status_code, url)
 
@@ -262,21 +296,19 @@ class Paginator:
         per_page = json_data.get(self.per_page_field)
 
         if total_count is None or per_page is None:
-            self.logger.warning(
-                "Pagination fields missing, returning raw response")
+            self.logger.warning("Pagination fields missing, returning raw response")
             return self.flatten_json(json_data) if flatten_json else json_data
 
-        self.per_page = params.get(
-            self.per_page_field, self.per_page or per_page)
+        self.items_per_page = params.get(self.per_page_field, self.items_per_page or per_page)
+        print(f"total_count: {total_count} | self.per_page: {self.items_per_page}")
         total_pages = 1 if self.download_one_page_only else - \
-            (-total_count // self.per_page)
+            (-total_count // self.items_per_page)
 
         results = []
-        with tqdm(total=total_count, desc="Downloading records") as pbar:
+        with tqdm(total=total_count, desc="Downloading items") as pbar:
             threads = []
             for page in range(1, total_pages + 1):
-                thread = Thread(target=self.fetch_page, args=(
-                    url, params.copy(), page, results, pbar))
+                thread = Thread(target=self.fetch_page, args=(url, params.copy(), page, results, pbar))
                 thread.start()
                 threads.append(thread)
 
