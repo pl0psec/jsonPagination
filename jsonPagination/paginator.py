@@ -12,7 +12,7 @@ import requests
 from requests.exceptions import RequestException
 import urllib3
 from tqdm import tqdm
-from ratelimit import limits, sleep_and_retry
+# from ratelimit import limits, sleep_and_retry
 
 
 class LoginFailedException(Exception):
@@ -184,23 +184,21 @@ class Paginator:
                 "Login URL and auth data must be provided for login.")
 
         self.logger.debug("Logging in to %s", self.login_url)
-        response = requests.post(
-            self.login_url, json=self.auth_data, verify=self.verify_ssl, timeout=self.timeout)
+        response = requests.post(self.login_url, json=self.auth_data, verify=self.verify_ssl, timeout=self.timeout)
 
-        self.logger.debug(
-            "Login request to %s returned status code %d", self.login_url, response.status_code)
+        self.logger.debug("Login request to %s returned status code %d", self.login_url, response.status_code)
+
         if response.status_code == 200:
             self.token = response.json().get('token')
             self.headers['Authorization'] = f'Bearer {self.token}'
-            self.logger.info(
-                "Login successful with status code %d.", response.status_code)
+            self.logger.info("Login successful with status code %d.", response.status_code)
+
         else:
-            self.logger.error(
-                "Login failed with status code %d.", response.status_code)
+            self.logger.error("Login failed with status code %d.", response.status_code)
             raise LoginFailedException(response.status_code)
 
-    @sleep_and_retry
-    @limits(calls=2, period=60)
+    # @sleep_and_retry
+    # @limits(calls=2, period=60)
     def fetch_page(self, url, params, page, results, pbar=None):
         """
         Fetches a single page of data from the API and updates the progress bar.
