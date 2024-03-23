@@ -12,34 +12,8 @@ import requests
 from requests.exceptions import RequestException
 import urllib3
 from tqdm import tqdm
-# from ratelimit import limits, sleep_and_retry
 
-
-class LoginFailedException(Exception):
-    """Exception raised when login fails."""
-
-    def __init__(self, status_code, message="Login failed"):
-        super().__init__(f"{message}. Status code: {status_code}")
-
-
-class DataFetchFailedException(Exception):
-    """Exception raised when fetching data fails."""
-
-    def __init__(self, status_code, url, message="Failed to fetch data"):
-        super().__init__(f"{message}. Status code: {status_code}, URL: {url}")
-
-
-class AuthenticationFailed(Exception):
-    """Exception raised when authentication fails."""
-
-    def __init__(self, message="Authentication failed"):
-        super().__init__(message)
-
-
-def no_op_decorator(func):
-    """A no-operation decorator that just returns the function unmodified."""
-    return func
-
+from .exceptions import LoginFailedException, DataFetchFailedException, AuthenticationFailed
 
 class Paginator:
     """
@@ -50,7 +24,7 @@ class Paginator:
     def __init__(self, login_url=None, auth_data=None, current_page_field='page',
                  start_index_field=None, per_page_field='per_page', total_count_field='total',
                  items_per_page=None, max_threads=5, download_one_page_only=False, verify_ssl=True,
-                 data_field='data', log_level='INFO', retry_delay=30, api_rate_limit=None):
+                 data_field='data', log_level='INFO', retry_delay=30, ratelimit=None):
         """
         Initializes the Paginator with the given configuration.
 
@@ -68,7 +42,7 @@ class Paginator:
             data_field (str, optional): Field name from which to extract the data in the API response.
             log_level (str, optional): Logging level for the paginator.
             retry_delay (int, optional): Time in seconds to wait before retrying a failed request.
-            api_rate_limit (tuple, optional): Rate limit settings as a tuple (calls, period) where 'calls' is the number of allowed calls in 'period' seconds.
+            ratelimit (tuple, optional): Rate limit settings as a tuple (calls, period) where 'calls' is the number of allowed calls in 'period' seconds.
         """
 
         # Setup logger with a console handler
@@ -90,6 +64,7 @@ class Paginator:
 
         # HTTP
         self.verify_ssl = verify_ssl
+        self.request_timeout = 120
 
         # Pagination
         self.data_field = data_field
@@ -107,8 +82,7 @@ class Paginator:
         self.retry_delay = retry_delay
 
         # Ratelimit
-        self.api_rate_limit = api_rate_limit
-        self.timeout = 60
+        self.ratelimit = ratelimit
 
         # Where to classify this ?
         self.headers = {}
@@ -184,7 +158,7 @@ class Paginator:
                 "Login URL and auth data must be provided for login.")
 
         self.logger.debug("Logging in to %s", self.login_url)
-        response = requests.post(self.login_url, json=self.auth_data, verify=self.verify_ssl, timeout=self.timeout)
+        response = requests.post(self.login_url, json=self.auth_data, verify=self.verify_ssl, timeout=self.request_timeout)
 
         self.logger.debug("Login request to %s returned status code %d", self.login_url, response.status_code)
 
@@ -197,8 +171,8 @@ class Paginator:
             self.logger.error("Login failed with status code %d.", response.status_code)
             raise LoginFailedException(response.status_code)
 
-    # @sleep_and_retry
-    # @limits(calls=2, period=60)
+    # TODO: ensure that ratelimit is not exceeding if set self.ratelimit is set
+    # if not set, no ratelimit in place
     def fetch_page(self, url, params, page, results, pbar=None):
         """
         Fetches a single page of data from the API and updates the progress bar.
@@ -211,16 +185,17 @@ class Paginator:
             pbar (tqdm, optional): A tqdm progress bar instance to update with progress.
         """
         def make_request():
-            # Set the pagination parameters
-            if self.start_index_field and self.per_page_field:
-                params[self.per_page_field] = self.items_per_page
-                params[self.start_index_field] = page * self.items_per_page
+            # Update the params with pagination parameters
+            params[self.current_page_field] = page
+            params[self.per_page_field] = self.items_per_page  # Ensure this is set correctly
 
-            # Construct the full URL for logging
-            full_url = f"{url}?{requests.compat.urlencode(params)}"
+            self.logger.debug("Parameters for request: %s", params)
+
+            # Construct the full URL for logging and request
+            response = requests.get(url, headers=self.headers, params=params, timeout=self.request_timeout, verify=self.verify_ssl)
+            full_url = response.request.url  # Get the actual URL after parameters are appended
             self.logger.debug("Requesting URL: %s", full_url)
 
-            response = requests.get(url, headers=self.headers, params=params, timeout=self.timeout, verify=self.verify_ssl)
             if response.status_code == 200:
                 data = response.json()
                 fetched_data = data.get(self.data_field, []) if self.data_field else data
@@ -228,8 +203,9 @@ class Paginator:
                     results.extend(fetched_data)
                 if pbar:
                     pbar.update(len(fetched_data))
-                return True  # Successful fetch
+                return True
 
+            # Handle authentication failure
             if response.status_code in [401, 403]:
                 self.logger.error("Authentication failed with status code %d : %s", response.status_code, response.text)
                 raise AuthenticationFailed(f"Authentication failed with status code {response.status_code}")
@@ -244,10 +220,10 @@ class Paginator:
                     return
 
                 retries -= 1
-                self.logger.warning(f"Retrying page {page} after {self.retry_delay} seconds, remaining retries: {retries}")
+                self.logger.warning("Retrying page %d after %d seconds, remaining retries: %d", page, self.retry_delay, retries)
                 time.sleep(self.retry_delay)  # Wait before retrying
             except RequestException as e:
-                self.logger.error(f"Network error fetching page {page}: {e}")
+                self.logger.error("Network error fetching page %d: %s", page, e)
                 retries -= 1
                 time.sleep(self.retry_delay)  # Wait before retrying
 
@@ -285,28 +261,33 @@ class Paginator:
         if self.login_url and not self.token and self.auth_data:
             self.login()
 
-        response = requests.get(url, headers=self.headers, params=params, verify=self.verify_ssl, timeout=self.timeout)
+        response = requests.get(url, headers=self.headers, params=params, verify=self.verify_ssl, timeout=self.request_timeout)
         if response.status_code != 200:
             raise DataFetchFailedException(response.status_code, url)
 
         json_data = response.json()
         total_count = json_data.get(self.total_count_field)
-        per_page = json_data.get(self.per_page_field)
+        per_page = json_data.get(self.per_page_field, self.items_per_page)
 
         if total_count is None or per_page is None:
             self.logger.warning("Pagination fields missing, returning raw response")
             return self.flatten_json(json_data) if flatten_json else json_data
 
-        self.items_per_page = params.get(self.per_page_field, self.items_per_page or per_page)
-        print(f"total_count: {total_count} | self.per_page: {self.items_per_page}")
-        total_pages = 1 if self.download_one_page_only else - \
-            (-total_count // self.items_per_page)
+        # self.items_per_page = per_page or self.items_per_page
+        total_pages = 1 if self.download_one_page_only else max(-(-total_count // self.items_per_page), 1)
+
+        self.logger.info("Total items to download: %d | Number of pages to fetch: %d", total_count, total_pages)
 
         results = []
         with tqdm(total=total_count, desc="Downloading items") as pbar:
             threads = []
             for page in range(1, total_pages + 1):
-                thread = Thread(target=self.fetch_page, args=(url, params.copy(), page, results, pbar))
+                page_params = params.copy()
+                page_params[self.current_page_field] = page
+                if self.start_index_field:
+                    page_params[self.start_index_field] = (page - 1) * self.items_per_page
+
+                thread = Thread(target=self.fetch_page, args=(url, page_params, page, results, pbar))
                 thread.start()
                 threads.append(thread)
 
