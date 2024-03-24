@@ -15,14 +15,15 @@ from tqdm import tqdm
 
 from .exceptions import LoginFailedException, DataFetchFailedException, AuthenticationFailed
 
+
 class Paginator:
     """
     A class for fetching and paginating JSON data from APIs with support for multithreading,
     customizable authentication, and the option to disable SSL verification for HTTP requests.
     """
 
-    def __init__(self, login_url=None, auth_data=None, current_page_field='page',
-                 start_index_field=None, per_page_field='per_page', total_count_field='total',
+    def __init__(self, login_url=None, auth_data=None, current_page_field=None,
+                 current_index_field=None, items_field='per_page', total_count_field='total',
                  items_per_page=None, max_threads=5, download_one_page_only=False, verify_ssl=True,
                  data_field='data', log_level='INFO', retry_delay=30, ratelimit=None):
         """
@@ -32,10 +33,10 @@ class Paginator:
             login_url (str, optional): URL for authentication to retrieve a token.
             auth_data (dict, optional): Credentials required for the login endpoint.
             current_page_field (str, optional): Field name for the current page number in the API request.
-            start_index_field (str, optional): Field name for the starting index in the API request (used for APIs that paginate by index rather than by page number).
-            per_page_field (str, optional): Field name for the number of items per page in the API request.
+            current_index_field (str, optional): Field name for the starting index in the API request (used for APIs that paginate by index rather than by page number).
+            items_field (str, optional): Field name for the number of items per page in the API request.
             total_count_field (str, optional): Field name in the API response that holds the total number of items.
-            per_page (int, optional): The number of items to request per page.
+            items_per_page (int, optional): The number of items to request per page.
             max_threads (int, optional): Maximum number of threads to use for parallel requests.
             download_one_page_only (bool, optional): Whether to fetch only the first page of data.
             verify_ssl (bool, optional): Whether to verify SSL certificates for HTTP requests.
@@ -44,6 +45,14 @@ class Paginator:
             retry_delay (int, optional): Time in seconds to wait before retrying a failed request.
             ratelimit (tuple, optional): Rate limit settings as a tuple (calls, period) where 'calls' is the number of allowed calls in 'period' seconds.
         """
+
+        if current_page_field and current_index_field:
+            raise ValueError("Only one of `current_page_field` or `current_index_field` should be provided.")
+
+        if not current_page_field and not current_index_field:
+            current_page_field = 'page'  # Default to 'page' if neither is provided
+
+        # self.items_per_page = items_per_page if items_per_page is not None else 10  # Ensure there's a default value for items_per_page
 
         # Setup logger with a console handler
         self.logger = logging.getLogger(__name__)
@@ -67,14 +76,26 @@ class Paginator:
         self.request_timeout = 120
 
         # Pagination
-        self.data_field = data_field
-        self.current_page_field = current_page_field
-        self.per_page_field = per_page_field
+
+        # Use `current_page_field` if provided, otherwise default to `current_index_field`
+        self.pagination_field = current_page_field if current_page_field else current_index_field
+        self.is_page_based = bool(current_page_field)
+
+        self.items_field = items_field
         self.total_count_field = total_count_field
+        self.items_per_page = items_per_page or 10
+
+        # # TODO: ensure that only one can be used current_page_field or current_index_field, to indicate if the pagination is per page or using an index
+        # self.current_page_field = current_page_field
+        # self.current_index_field = current_index_field
+
+        # self.per_page_field = per_page_field #TODO find a better name, per_page_field is a great name when using current_page_field, but does not make sense when using current_index_field
+        # self.total_count_field = total_count_field
+
+        self.data_field = data_field
+
         self.items_per_page = items_per_page
         self.download_one_page_only = download_one_page_only
-
-        self.start_index_field = start_index_field
 
         # Threading
         self.max_threads = max_threads
@@ -82,7 +103,9 @@ class Paginator:
         self.retry_delay = retry_delay
 
         # Ratelimit
-        self.ratelimit = ratelimit
+        self.ratelimit = ratelimit  # should be a tuple like (5, 60) for 5 calls per 60 seconds
+        self.last_request_time = None
+        self.request_interval = 0 if not ratelimit else ratelimit[1] / ratelimit[0]
 
         # Where to classify this ?
         self.headers = {}
@@ -171,8 +194,19 @@ class Paginator:
             self.logger.error("Login failed with status code %d.", response.status_code)
             raise LoginFailedException(response.status_code)
 
-    # TODO: ensure that ratelimit is not exceeding if set self.ratelimit is set
-    # if not set, no ratelimit in place
+    def enforce_ratelimit(self):
+        """
+        Enforces the rate limit by sleeping if necessary before making the next request.
+        """
+        if self.ratelimit:
+            current_time = time.time()
+            if self.last_request_time and (current_time - self.last_request_time) < self.request_interval:
+                sleep_time = self.request_interval - (current_time - self.last_request_time)
+                self.logger.debug("Rate limiting in effect, sleeping for %.2f seconds", sleep_time)
+                time.sleep(sleep_time)
+
+            self.last_request_time = time.time()
+
     def fetch_page(self, url, params, page, results, pbar=None):
         """
         Fetches a single page of data from the API and updates the progress bar.
@@ -185,16 +219,22 @@ class Paginator:
             pbar (tqdm, optional): A tqdm progress bar instance to update with progress.
         """
         def make_request():
-            # Update the params with pagination parameters
-            params[self.current_page_field] = page
-            params[self.per_page_field] = self.items_per_page  # Ensure this is set correctly
+            # Rate limiting enforcement
+            self.enforce_ratelimit()
+
+            # Update the params with the appropriate pagination parameters
+            if self.is_page_based:
+                params[self.pagination_field] = page
+            else:
+                params[self.pagination_field] = (page - 1) * self.items_per_page
+
+            params[self.items_field] = self.items_per_page
 
             self.logger.debug("Parameters for request: %s", params)
 
             # Construct the full URL for logging and request
             response = requests.get(url, headers=self.headers, params=params, timeout=self.request_timeout, verify=self.verify_ssl)
-            full_url = response.request.url  # Get the actual URL after parameters are appended
-            self.logger.debug("Requesting URL: %s", full_url)
+            self.logger.debug("Requesting URL: %s with status code: %d", response.request.url, response.status_code)
 
             if response.status_code == 200:
                 data = response.json()
@@ -205,10 +245,19 @@ class Paginator:
                     pbar.update(len(fetched_data))
                 return True
 
-            # Handle authentication failure
-            if response.status_code in [401, 403]:
+            elif response.status_code == 401:
                 self.logger.error("Authentication failed with status code %d : %s", response.status_code, response.text)
                 raise AuthenticationFailed(f"Authentication failed with status code {response.status_code}")
+
+            elif response.status_code == 403:
+                if not self.login_url:  # No login URL defined, retry after sleeping
+                    self.logger.warning("Access denied with status code 403, retrying after 10 seconds...")
+                    time.sleep(10)  # Sleep and then retry the current request
+                    self.last_request_time = time.time()  # Update the rate limit enforcement time
+                    return False
+                else:
+                    self.logger.error("Access denied with status code %d : %s", response.status_code, response.text)
+                    raise AuthenticationFailed(f"Access denied with status code {response.status_code}")
 
             return False  # Indicate that fetch was unsuccessful
 
@@ -226,6 +275,7 @@ class Paginator:
                 self.logger.error("Network error fetching page %d: %s", page, e)
                 retries -= 1
                 time.sleep(self.retry_delay)  # Wait before retrying
+
 
     def fetch_all_pages(self, url, params=None, flatten_json=False):
         """
@@ -267,14 +317,20 @@ class Paginator:
 
         json_data = response.json()
         total_count = json_data.get(self.total_count_field)
-        per_page = json_data.get(self.per_page_field, self.items_per_page)
-
-        if total_count is None or per_page is None:
-            self.logger.warning("Pagination fields missing, returning raw response")
+        if total_count is None:
+            self.logger.warning("Total count field missing, cannot paginate properly.")
             return self.flatten_json(json_data) if flatten_json else json_data
 
-        # self.items_per_page = per_page or self.items_per_page
-        total_pages = 1 if self.download_one_page_only else max(-(-total_count // self.items_per_page), 1)
+        # Set items_per_page based on the initial API call if not set
+        if not self.items_per_page:
+            self.items_per_page = json_data.get(self.items_field, 200)  # Default to 200 if not specified
+
+        # Determine pagination strategy
+        if self.is_page_based:
+            total_pages = 1 if self.download_one_page_only else max(-(-total_count // self.items_per_page), 1)
+        else:  # Index-based pagination
+            # Calculate how many sets of data (each of size 'items_per_page') are needed to cover 'total_count'
+            total_pages = 1 if self.download_one_page_only else max(-(-total_count // self.items_per_page), 1)
 
         self.logger.info("Total items to download: %d | Number of pages to fetch: %d", total_count, total_pages)
 
@@ -283,9 +339,11 @@ class Paginator:
             threads = []
             for page in range(1, total_pages + 1):
                 page_params = params.copy()
-                page_params[self.current_page_field] = page
-                if self.start_index_field:
-                    page_params[self.start_index_field] = (page - 1) * self.items_per_page
+
+                if self.is_page_based:
+                    page_params[self.pagination_field] = page
+                else:  # Assuming each 'page' in index-based pagination fetches `items_per_page` items
+                    page_params[self.pagination_field] = (page - 1) * self.items_per_page
 
                 thread = Thread(target=self.fetch_page, args=(url, page_params, page, results, pbar))
                 thread.start()
