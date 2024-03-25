@@ -85,13 +85,6 @@ class Paginator:
         self.total_count_field = total_count_field
         self.items_per_page = items_per_page or 10
 
-        # # TODO: ensure that only one can be used current_page_field or current_index_field, to indicate if the pagination is per page or using an index
-        # self.current_page_field = current_page_field
-        # self.current_index_field = current_index_field
-
-        # self.per_page_field = per_page_field #TODO find a better name, per_page_field is a great name when using current_page_field, but does not make sense when using current_index_field
-        # self.total_count_field = total_count_field
-
         self.data_field = data_field
 
         self.items_per_page = items_per_page
@@ -245,19 +238,20 @@ class Paginator:
                     pbar.update(len(fetched_data))
                 return True
 
-            elif response.status_code == 401:
+            if response.status_code == 401:
                 self.logger.error("Authentication failed with status code %d : %s", response.status_code, response.text)
                 raise AuthenticationFailed(f"Authentication failed with status code {response.status_code}")
 
-            elif response.status_code == 403:
+            if response.status_code == 403:
                 if not self.login_url:  # No login URL defined, retry after sleeping
                     self.logger.warning("Access denied with status code 403, retrying after 10 seconds...")
                     time.sleep(10)  # Sleep and then retry the current request
                     self.last_request_time = time.time()  # Update the rate limit enforcement time
                     return False
-                else:
-                    self.logger.error("Access denied with status code %d : %s", response.status_code, response.text)
-                    raise AuthenticationFailed(f"Access denied with status code {response.status_code}")
+
+                self.logger.error("Access denied with status code %d : %s", response.status_code, response.text)
+                raise AuthenticationFailed(f"Access denied with status code {response.status_code}")
+
 
             return False  # Indicate that fetch was unsuccessful
 
