@@ -321,6 +321,7 @@ class Paginator:
             self.logger.error("HTTP status code: %d", response.status_code)
             self.logger.error("Response reason: %s", response.reason)
             self.logger.error("Response content: %s", response.text)
+            self.logger.error("Request headers: %s", effective_headers)
 
             # Raise exception with detailed info
             raise DataFetchFailedException(response.status_code, full_url, response.text)
