@@ -304,12 +304,13 @@ class Paginator:
             params = {}
 
         # Merge instance headers with method-specific headers, if any
-        effective_headers = self.headers.copy()
-        if headers:
-            effective_headers.update(headers)
 
         if self.login_url and not self.token and self.auth_data:
             self.login()
+
+        effective_headers = self.headers.copy()
+        if headers:
+            effective_headers.update(headers)
 
         response = requests.get(url, headers=effective_headers, params=params, verify=self.verify_ssl, timeout=self.request_timeout)
 
