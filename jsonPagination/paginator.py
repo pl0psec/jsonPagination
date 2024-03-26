@@ -312,8 +312,18 @@ class Paginator:
             self.login()
 
         response = requests.get(url, headers=effective_headers, params=params, verify=self.verify_ssl, timeout=self.request_timeout)
+
         if response.status_code != 200:
-            raise DataFetchFailedException(response.status_code, url)
+            full_url = response.url  # This gives the full URL after the query parameters are applied
+
+            # Log detailed error information
+            self.logger.error("Failed to fetch data from %s", full_url)
+            self.logger.error("HTTP status code: %d", response.status_code)
+            self.logger.error("Response reason: %s", response.reason)
+            self.logger.error("Response content: %s", response.text)
+
+            # Raise exception with detailed info
+            raise DataFetchFailedException(response.status_code, full_url, response.text)
 
         json_data = response.json()
         total_count = json_data.get(self.total_count_field)
