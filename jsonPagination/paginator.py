@@ -25,7 +25,7 @@ class Paginator:
     def __init__(self, login_url=None, auth_data=None, current_page_field=None,
                  current_index_field=None, items_field='per_page', total_count_field='total',
                  items_per_page=None, max_threads=5, download_one_page_only=False, verify_ssl=True,
-                 data_field='data', log_level='INFO', retry_delay=30, ratelimit=None):
+                 data_field='data', log_level='INFO', retry_delay=30, ratelimit=None, headers=None):
         """
         Initializes the Paginator with the given configuration.
 
@@ -75,6 +75,8 @@ class Paginator:
         self.verify_ssl = verify_ssl
         self.request_timeout = 120
 
+        self.headers = headers if headers is not None else {}
+
         # Pagination
 
         # Use `current_page_field` if provided, otherwise default to `current_index_field`
@@ -101,7 +103,6 @@ class Paginator:
         self.request_interval = 0 if not ratelimit else ratelimit[1] / ratelimit[0]
 
         # Where to classify this ?
-        self.headers = {}
         self.data_queue = Queue()
         self.retry_lock = Lock()
         self.is_retrying = False
@@ -271,7 +272,7 @@ class Paginator:
                 time.sleep(self.retry_delay)  # Wait before retrying
 
 
-    def fetch_all_pages(self, url, params=None, flatten_json=False):
+    def fetch_all_pages(self, url, params=None, flatten_json=False, headers=None):
         """
         Fetches all pages of data from a paginated API endpoint, optionally flattening the JSON
         structure of the results.
@@ -302,10 +303,15 @@ class Paginator:
         if not params:
             params = {}
 
+        # Merge instance headers with method-specific headers, if any
+        effective_headers = self.headers.copy()
+        if headers:
+            effective_headers.update(headers)
+
         if self.login_url and not self.token and self.auth_data:
             self.login()
 
-        response = requests.get(url, headers=self.headers, params=params, verify=self.verify_ssl, timeout=self.request_timeout)
+        response = requests.get(url, headers=effective_headers, params=params, verify=self.verify_ssl, timeout=self.request_timeout)
         if response.status_code != 200:
             raise DataFetchFailedException(response.status_code, url)
 
