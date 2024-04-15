@@ -24,7 +24,7 @@ class Paginator:
 
     def __init__(self, login_url=None, auth_data=None, current_page_field=None,
                  current_index_field=None, items_field='per_page', total_count_field='total',
-                 items_per_page=None, max_threads=5, download_one_page_only=False, verify_ssl=True,
+                 items_per_page=None, response_items_field=None, max_threads=5, download_one_page_only=False, verify_ssl=True,
                  data_field='data', log_level='INFO', retry_delay=30, ratelimit=None, headers=None):
         """
         Initializes the Paginator with the given configuration.
@@ -33,6 +33,7 @@ class Paginator:
             login_url (str, optional): URL for authentication to retrieve a token.
             auth_data (dict, optional): Credentials required for the login endpoint.
             current_page_field (str, optional): Field name for the current page number in the API request.
+            response_items_field (str, optional): Field name for the current page number in the API response.
             current_index_field (str, optional): Field name for the starting index in the API request (used for APIs that paginate by index rather than by page number).
             items_field (str, optional): Field name for the number of items per page in the API request.
             total_count_field (str, optional): Field name in the API response that holds the total number of items.
@@ -79,7 +80,7 @@ class Paginator:
 
         # Pagination
 
-        # Use `current_page_field` if provided, otherwise default to `current_index_field`
+        # Use `current_page_field` if provided, otherwise default to `current_index_field`        
         self.pagination_field = current_page_field if current_page_field else current_index_field
         self.is_page_based = bool(current_page_field)
 
@@ -90,6 +91,7 @@ class Paginator:
         self.data_field = data_field
 
         self.items_per_page = items_per_page
+        self.response_items_field = response_items_field or items_per_page
         self.download_one_page_only = download_one_page_only
 
         # Threading
@@ -201,9 +203,11 @@ class Paginator:
 
             self.last_request_time = time.time()
 
-    def fetch_page(self, url, params, page, results, pbar=None):
+    def fetch_page(self, url, params, page, results, pbar=None, callback=None):
         """
         Fetches a single page of data from the API and updates the progress bar.
+
+        If a callback is provided, it is invoked after successfully fetching the page data.
 
         Args:
             url (str): The API endpoint URL.
@@ -211,6 +215,7 @@ class Paginator:
             page (int): The page number to fetch.
             results (list): The list to which fetched data will be appended.
             pbar (tqdm, optional): A tqdm progress bar instance to update with progress.
+            callback (function, optional): A callback function to be invoked after each page is fetched.
         """
         def make_request():
             # Rate limiting enforcement
@@ -233,10 +238,16 @@ class Paginator:
             if response.status_code == 200:
                 data = response.json()
                 fetched_data = data.get(self.data_field, []) if self.data_field else data
+
                 with self.retry_lock:
                     results.extend(fetched_data)
+
+                if callback:  # Invoke the callback function with the fetched data
+                    callback(fetched_data, 'page_fetch')  # Or any other step identifier
+
                 if pbar:
                     pbar.update(len(fetched_data))
+
                 return True
 
             if response.status_code == 401:
@@ -252,7 +263,6 @@ class Paginator:
 
                 self.logger.error("Access denied with status code %d : %s", response.status_code, response.text)
                 raise AuthenticationFailed(f"Access denied with status code {response.status_code}")
-
 
             return False  # Indicate that fetch was unsuccessful
 
@@ -271,34 +281,22 @@ class Paginator:
                 retries -= 1
                 time.sleep(self.retry_delay)  # Wait before retrying
 
-
-    def fetch_all_pages(self, url, params=None, flatten_json=False, headers=None):
+    def fetch_all_pages(self, url, params=None, flatten_json=False, headers=None, callback=None):
         """
         Fetches all pages of data from a paginated API endpoint, optionally flattening the JSON
-        structure of the results.
-
-        This method handles authentication (if necessary), iterates over all pages of the endpoint,
-        and can flatten the nested JSON structure of the returned data.
+        structure of the results. Invokes a callback function after each page if provided.
 
         Args:
             url (str): The URL of the API endpoint to fetch data from.
             params (dict, optional): Additional query parameters to include in the request.
             flatten_json (bool, optional): If set to True, the returned JSON structure will be
-                                        flattened. Defaults to False.
+                                           flattened. Defaults to False.
+            callback (function, optional): A callback function that is called after each page is fetched.
 
         Returns:
             list or dict: A list of JSON objects fetched from the API if `flatten_json` is False.
-                        If `flatten_json` is True, a single-level dictionary representing the
-                        flattened JSON structure is returned.
-
-        Raises:
-            DataFetchFailedException: If the initial request to the API fails.
-            ValueError: If required pagination fields are missing in the API response.
-
-        Note:
-            The method will automatically paginate through all available pages based on the
-            response's pagination fields. If pagination fields are missing, it returns the raw
-            response from the first request.
+                          If `flatten_json` is True, a single-level dictionary representing the
+                          flattened JSON structure is returned.
         """
         if not params:
             params = {}
@@ -334,8 +332,14 @@ class Paginator:
             return self.flatten_json(json_data) if flatten_json else json_data
 
         # Set items_per_page based on the initial API call if not set
-        if not self.items_per_page:
-            self.items_per_page = json_data.get(self.items_field, 200)  # Default to 200 if not specified
+        # if not self.items_per_page:
+            # self.items_per_page = json_data.get(self.items_field, 200)  # Default to 200 if not specified
+
+        # Set items_per_page based on the response, dynamically choosing the field or defaulting as necessary         
+        if self.response_items_field and self.response_items_field in json_data:
+            self.items_per_page = json_data.get(self.response_items_field)
+        else:
+            self.items_per_page = json_data.get(self.items_field, 200)
 
         # Determine pagination strategy
         if self.is_page_based:
@@ -352,12 +356,9 @@ class Paginator:
             for page in range(1, total_pages + 1):
                 page_params = params.copy()
 
-                if self.is_page_based:
-                    page_params[self.pagination_field] = page
-                else:  # Assuming each 'page' in index-based pagination fetches `items_per_page` items
-                    page_params[self.pagination_field] = (page - 1) * self.items_per_page
+                # Existing pagination logic...
 
-                thread = Thread(target=self.fetch_page, args=(url, page_params, page, results, pbar))
+                thread = Thread(target=self.fetch_page, args=(url, page_params, page, results, pbar, callback))
                 thread.start()
                 threads.append(thread)
 
@@ -371,5 +372,5 @@ class Paginator:
 
         while not self.data_queue.empty():
             results.extend(self.data_queue.get())
-
+        
         return [self.flatten_json(item) if flatten_json else item for item in results]
