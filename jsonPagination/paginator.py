@@ -86,12 +86,11 @@ class Paginator:
 
         self.items_field = items_field
         self.total_count_field = total_count_field
-        self.items_per_page = items_per_page or 10
 
         self.data_field = data_field
 
-        self.items_per_page = items_per_page
-        self.response_items_field = response_items_field or items_per_page
+        self.items_per_page = items_per_page or 50
+        self.response_items_field = response_items_field
         self.download_one_page_only = download_one_page_only
 
         # Threading
@@ -332,14 +331,13 @@ class Paginator:
             return self.flatten_json(json_data) if flatten_json else json_data
 
         # Set items_per_page based on the initial API call if not set
-        # if not self.items_per_page:
-            # self.items_per_page = json_data.get(self.items_field, 200)  # Default to 200 if not specified
+        if not self.items_per_page:
 
-        # Set items_per_page based on the response, dynamically choosing the field or defaulting as necessary         
-        if self.response_items_field and self.response_items_field in json_data:
-            self.items_per_page = json_data.get(self.response_items_field)
-        else:
-            self.items_per_page = json_data.get(self.items_field, 200)
+            # Set items_per_page based on the response, dynamically choosing the field or defaulting as necessary         
+            if self.response_items_field and self.response_items_field in json_data:
+                self.items_per_page = json_data.get(self.response_items_field)
+            else:
+                self.items_per_page = json_data.get(self.items_field, 200)
 
         # Determine pagination strategy
         if self.is_page_based:
