@@ -7,6 +7,7 @@ import logging
 from queue import Queue
 from threading import Thread, Lock
 import time
+from urllib.parse import urljoin
 
 import requests
 from requests.exceptions import RequestException
@@ -22,7 +23,7 @@ class Paginator:
     customizable authentication, and the option to disable SSL verification for HTTP requests.
     """
 
-    def __init__(self, login_url=None, auth_data=None, current_page_field=None,
+    def __init__(self, base_url, login_url=None, auth_data=None, current_page_field=None,
                  current_index_field=None, items_field='per_page', total_count_field='total',
                  items_per_page=None, response_items_field=None, max_threads=5, download_one_page_only=False, verify_ssl=True,
                  data_field='data', log_level='INFO', retry_delay=30, ratelimit=None, headers=None):
@@ -67,6 +68,9 @@ class Paginator:
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
 
+        # URL
+        self.base_url = base_url
+
         # Auth
         self.login_url = login_url
         self.auth_data = auth_data
@@ -77,10 +81,12 @@ class Paginator:
         self.request_timeout = 120
 
         self.headers = headers if headers is not None else {}
+        self.retry_lock = Lock()
+        self.is_retrying = False
 
         # Pagination
 
-        # Use `current_page_field` if provided, otherwise default to `current_index_field`        
+        # Use `current_page_field` if provided, otherwise default to `current_index_field`
         self.pagination_field = current_page_field if current_page_field else current_index_field
         self.is_page_based = bool(current_page_field)
 
@@ -97,20 +103,17 @@ class Paginator:
         self.max_threads = max_threads
         self.retry = 5
         self.retry_delay = retry_delay
+        self.data_queue = Queue()
 
         # Ratelimit
         self.ratelimit = ratelimit  # should be a tuple like (5, 60) for 5 calls per 60 seconds
         self.last_request_time = None
         self.request_interval = 0 if not ratelimit else ratelimit[1] / ratelimit[0]
 
-        # Where to classify this ?
-        self.data_queue = Queue()
-        self.retry_lock = Lock()
-        self.is_retrying = False
-
         if not self.verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             self.logger.debug("SSL verification is disabled for all requests.")
+
 
     def flatten_json(self, y):
         """
@@ -175,10 +178,12 @@ class Paginator:
             raise ValueError(
                 "Login URL and auth data must be provided for login.")
 
-        self.logger.debug("Logging in to %s", self.login_url)
-        response = requests.post(self.login_url, json=self.auth_data, verify=self.verify_ssl, timeout=self.request_timeout)
+        login_url = urljoin(self.base_url, self.login_url)
 
-        self.logger.debug("Login request to %s returned status code %d", self.login_url, response.status_code)
+        self.logger.debug("Logging in to %s", login_url)
+        response = requests.post(login_url, json=self.auth_data, verify=self.verify_ssl, timeout=self.request_timeout)
+
+        self.logger.debug("Login request to %s returned status code %d", login_url, response.status_code)
 
         if response.status_code == 200:
             self.token = response.json().get('token')
@@ -231,7 +236,8 @@ class Paginator:
             self.logger.debug("Parameters for request: %s", params)
 
             # Construct the full URL for logging and request
-            response = requests.get(url, headers=self.headers, params=params, timeout=self.request_timeout, verify=self.verify_ssl)
+            response = requests.get(urljoin(self.base_url, url), headers=self.headers, params=params, timeout=self.request_timeout, verify=self.verify_ssl)
+
             self.logger.debug("Requesting URL: %s with status code: %d", response.request.url, response.status_code)
 
             if response.status_code == 200:
@@ -309,7 +315,7 @@ class Paginator:
         if headers:
             effective_headers.update(headers)
 
-        response = requests.get(url, headers=effective_headers, params=params, verify=self.verify_ssl, timeout=self.request_timeout)
+        response = requests.get(urljoin(self.base_url, url), headers=effective_headers, params=params, verify=self.verify_ssl, timeout=self.request_timeout)
 
         if response.status_code != 200:
             full_url = response.url  # This gives the full URL after the query parameters are applied
@@ -333,7 +339,7 @@ class Paginator:
         # Set items_per_page based on the initial API call if not set
         if not self.items_per_page:
 
-            # Set items_per_page based on the response, dynamically choosing the field or defaulting as necessary         
+            # Set items_per_page based on the response, dynamically choosing the field or defaulting as necessary
             if self.response_items_field and self.response_items_field in json_data:
                 self.items_per_page = json_data.get(self.response_items_field)
             else:
@@ -370,5 +376,5 @@ class Paginator:
 
         while not self.data_queue.empty():
             results.extend(self.data_queue.get())
-        
+
         return [self.flatten_json(item) if flatten_json else item for item in results]

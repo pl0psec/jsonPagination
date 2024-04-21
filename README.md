@@ -2,7 +2,7 @@
 
 [![python](https://img.shields.io/badge/Python-3.9-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-![pylint](https://img.shields.io/badge/PyLint-9.71-green?logo=python&logoColor=white)
+![pylint](https://img.shields.io/badge/PyLint-9.73-green?logo=python&logoColor=white)
 [![GitHub version](https://badge.fury.io/gh/pl0psec%2FjsonPagination.svg)](https://badge.fury.io/gh/pl0psec%2FjsonPagination)
 [![PyPI version](https://badge.fury.io/py/jsonPagination.svg)](https://badge.fury.io/py/jsonPagination)
 
@@ -27,9 +27,27 @@
 
 ## Installation
 
-To install `jsonPagination`, simply use pip:
+To install `jsonPagination`, you have two options:
 
+1. Install directly using pip:
+
+    ```
     pip install jsonPagination
+    ```
+
+2. If you have a `requirements.txt` file that includes `jsonPagination`, install all the required packages using:
+
+    ```
+    pip install -r requirements.txt
+    ```
+
+Make sure `jsonPagination` is listed in your `requirements.txt` file with the desired version, like so:
+
+```sh
+jsonPagination==x.y.z
+```
+
+Replace `x.y.z` with the specific version number you want to install.
 
 ## Usage
 
@@ -39,14 +57,16 @@ Here's how to use `jsonPagination` for basic pagination, demonstrating both page
 ```python
 from jsonPagination.paginator import Paginator
 
-# Page-based pagination example
+# Instantiate the Paginator with a base URL
 paginator = Paginator(
+    base_url='https://api.example.com',
     current_page_field='page',  # Field name used by the API for page number
     items_field='items_per_page',  # Field name used by the API for the number of items per page
     max_threads=2
 )
 
-results = paginator.fetch_all_pages('https://api.example.com/data')
+# Fetch data using a relative path
+results = paginator.fetch_all_pages('/data')
 
 print("Downloaded data:")
 print(results)
@@ -64,29 +84,32 @@ headers = {
 }
 
 paginator = Paginator(
+    base_url='https://api.example.com',
     headers=headers,
     max_threads=2
 )
 
-results = paginator.fetch_all_pages('https://api.example.com/data')
+results = paginator.fetch_all_pages('/data')
 
 print("Downloaded data with basic authentication:")
 print(results)
 ```
 
 #### Token-based Authentication
-For APIs requiring a token, provide the login URL and authentication data:
+For APIs requiring a token, configure the `login_url` with the base URL during instantiation:
 
 ```python
 from jsonPagination.paginator import Paginator
+from urllib.parse import urljoin
 
 paginator = Paginator(
-    login_url='https://api.example.com/api/login',
+    base_url='https://api.example.com',
+    login_url=urljoin(base_url, '/api/login'),
     auth_data={'username': 'your_username', 'password': 'your_password'},
     max_threads=2
 )
 
-results = paginator.fetch_all_pages('https://api.example.com/api/data')
+results = paginator.fetch_all_pages('/api/data')
 
 print("Downloaded data with token-based authentication:")
 print(results)
@@ -99,37 +122,16 @@ Demonstrating how to handle rate limits:
 from jsonPagination.paginator import Paginator
 
 paginator = Paginator(
+    base_url='https://api.example.com',
     max_threads=2,
     ratelimit=(5, 60)  # 5 requests per 60 seconds
 )
 
-results = paginator.fetch_all_pages('https://api.example.com/data')
+results = paginator.fetch_all_pages('/data')
 
 print("Downloaded data with rate limiting:")
 print(results)
 ```
-
-## Configuration
-
-When instantiating the `Paginator` class, you can configure the following parameters to tailor its behavior:
-
-- `url`: The API endpoint URL from which data will be fetched.
-- `login_url` (optional): The URL to authenticate and retrieve a bearer token, used if the API requires token-based authentication.
-- `auth_data` (optional): A dictionary containing authentication data (such as `username` and `password`) required by the login endpoint for obtaining a token.
-- `current_page_field` (optional): The JSON field name used by the API to denote the current page number, applicable for page-number-based pagination.
-- `current_index_field` (optional): The JSON field name used by the API to denote the starting index for data fetching, applicable for index-based pagination.
-- `items_field` (optional): The JSON field name for the number of items to fetch per request, which corresponds to `per_page` in many APIs. This is used to control pagination size.
-- `total_count_field`: The JSON field name that contains the total number of items available, used to calculate the total number of pages or batches.
-- `items_per_page` (optional): Specifies the number of items to request per page or batch. If not set, the Paginator will try to use a sensible default based on the first API response or a predefined value.
-- `max_threads`: The maximum number of threads to use for parallel data fetching, enhancing speed for large datasets.
-- `download_one_page_only` (optional): A boolean indicating whether to fetch only the first page/batch of data, useful for testing or when only a sample of data is needed.
-- `verify_ssl` (optional): Determines whether SSL certificates should be verified in HTTP requests, enhancing security.
-- `data_field`: The specific JSON field name from which to extract the main data in the API response, necessary for parsing the fetched JSON data correctly.
-- `log_level` (optional): Sets the verbosity of logging, with possible values like `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`, to assist in debugging and monitoring.
-- `headers` (optional): A dictionary of custom HTTP headers to include in every request made by the Paginator, enabling additional customization like API keys or session tokens.
-- `ratelimit` (optional): A tuple specifying the rate limit as `(calls, period)` to prevent exceeding the API's rate limiting policies, ensuring compliant and responsible usage.
-
-These configuration options provide extensive control over how the `Paginator` interacts with the API, including authentication mechanisms, request formatting, error handling, and data retrieval efficiency. By adjusting these parameters, you can optimize the behavior of the Paginator to match the specific requirements and constraints of the API you are working with.
 
 ## Contributing
 
