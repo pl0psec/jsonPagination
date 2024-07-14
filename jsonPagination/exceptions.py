@@ -15,7 +15,7 @@ class LoginFailedException(Exception):
         message (str): Explanation of the error. Defaults to 'Login failed'.
     """
 
-    def __init__(self, status_code, message="Login failed"):
+    def __init__(self, status_code, message='Login failed'):
         """
         Initialize the exception with a status code and an optional custom message.
 
@@ -36,7 +36,7 @@ class DataFetchFailedException(Exception):
         message (str): Explanation of the error. Defaults to 'Failed to fetch data'.
     """
 
-    def __init__(self, status_code, url, message="Failed to fetch data"):
+    def __init__(self, status_code, url, message='Failed to fetch data'):
         """
         Initialize the exception with a status code, URL, and an optional custom message.
 
@@ -56,7 +56,7 @@ class AuthenticationFailed(Exception):
         message (str): Explanation of the error. Defaults to 'Authentication failed'.
     """
 
-    def __init__(self, message="Authentication failed"):
+    def __init__(self, message='Authentication failed'):
         """
         Initialize the exception with an optional custom message.
 

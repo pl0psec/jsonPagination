@@ -9,18 +9,18 @@ def main():
     """Main function to demonstrate Paginator usage."""
 
     auth = {
-        "email": "eve.holt@reqres.in",
-        "password": "cityslicka"}
+        'email': 'eve.holt@reqres.in',
+        'password': 'cityslicka'}
     try:
         paginator = Paginator(
-            login_url="https://reqres.in/api/login", auth_data=auth)
+            login_url='https://reqres.in/api/login', auth_data=auth)
 
         results = paginator.fetch_all_pages(url='https://reqres.in/api/users')
-        print("Downloaded data:")
+        print('Downloaded data:')
         print(results)
     except Exception as e:  # pylint: disable=W0718
         print(f"An error occurred: {e}")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

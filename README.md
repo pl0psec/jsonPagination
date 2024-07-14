@@ -72,6 +72,20 @@ print("Downloaded data:")
 print(results)
 ```
 
+**Note:**
+If your API request needs to specify a different number of items per page (`items_per_page`) than what is expected in the API response (`response_items_field`), you can configure these separately in the Paginator constructor. For example, if the API uses 'items_per_page' in the request but returns 'count' in the response to specify how many items are in each page, configure your Paginator like this:
+
+```python
+paginator = Paginator(
+    base_url='https://api.example.com',
+    current_page_field='page',
+    items_field='items_per_page',  # Field name for request pagination
+    response_items_field='count',  # Field name in the response for the number of items
+    max_threads=2
+)
+```
+
+
 ### Pagination with Authentication
 #### Basic Authentication
 For APIs that use basic authentication, you can directly include credentials in the header:
@@ -89,7 +103,7 @@ paginator = Paginator(
     max_threads=2
 )
 
-results = paginator.fetch_all_pages('/data')
+results = paginator.fetch_all_pages('/api/data')
 
 print("Downloaded data with basic authentication:")
 print(results)
@@ -127,7 +141,7 @@ paginator = Paginator(
     ratelimit=(5, 60)  # 5 requests per 60 seconds
 )
 
-results = paginator.fetch_all_pages('/data')
+results = paginator.fetch_all_pages('/api/data')
 
 print("Downloaded data with rate limiting:")
 print(results)
