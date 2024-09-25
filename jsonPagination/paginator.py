@@ -396,7 +396,7 @@ class Paginator:
             url (str): The URL of the API endpoint to fetch data from.
             params (dict, optional): Additional query parameters to include in the request.
             flatten_json (bool, optional): If set to True, the returned JSON structure will be
-                                           flattened. Defaults to False.
+                                        flattened. Defaults to False.
             callback (function, optional): A callback function that is called after each page is fetched.
 
         Returns:
@@ -404,13 +404,14 @@ class Paginator:
         """
         if not params:
             params = {}
+        
+        # Ensure authentication before copying headers
+        self.ensure_authenticated()  # Ensure authentication before making requests
 
         # Merge instance headers with method-specific headers, if any
         effective_headers = self.headers.copy()
         if headers:
             effective_headers.update(headers)
-
-        self.ensure_authenticated()  # Ensure authentication before making requests
 
         # Initialize a session for connection pooling
         with requests.Session() as session:
@@ -458,8 +459,11 @@ class Paginator:
                             self.fetch_page,
                             session,
                             url,
-                            {**params, self.pagination_field: page if self.is_page_based else (page - 1) * self.items_per_page,
-                             self.items_field: self.items_per_page},
+                            {
+                                **params,
+                                self.pagination_field: page if self.is_page_based else (page - 1) * self.items_per_page,
+                                self.items_field: self.items_per_page
+                            },
                             page,
                             results,
                             pbar,
