@@ -4,6 +4,19 @@ import coloredlogs     # https://coloredlogs.readthedocs.io/en/latest/readme.htm
 class MyHandler():
 
     def __init__(self, level='DEBUG', use_color = True):
+        """Initialize a new MyHandler instance.
+        
+        Args:
+            level (str): The logging level to set. Defaults to 'DEBUG'.
+            use_color (bool): Whether to use colored output for logging. Defaults to True.
+        
+        Returns:
+            None
+        
+        This method initializes a new MyHandler instance. It sets up a logger with a specific format
+        and installs coloredlogs with the specified level. The logger is stored as an instance
+        variable 'log'. After initialization, it logs a debug message.
+        """
         self.log = logging.getLogger('root')
 
         fmt = '[%(asctime)s] %(filename)-17s [%(levelname)-6s] %(message)s'
