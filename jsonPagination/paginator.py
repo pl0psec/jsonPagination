@@ -159,6 +159,18 @@ class Paginator:
             the output will be {"a_b": 1, "a_c_d": 2}.
         """
         def flatten(x: Any, name: str = '') -> Dict[str, Any]:
+            """Recursively flattens a nested structure of dictionaries and lists into a flat dictionary.
+            
+            Args:
+                x (Any): The input structure to be flattened. Can be a dictionary, list, or any other type.
+                name (str, optional): The base name for the current level of recursion. Defaults to ''.
+            
+            Returns:
+                Dict[str, Any]: A flattened dictionary where keys are concatenated paths and values are the leaf nodes.
+            
+            Yields:
+                Tuple[str, Any]: A tuple containing the flattened key and its corresponding value.
+            """
             if isinstance(x, dict):
                 for a in x:
                     yield from flatten(x[a], f'{name}{a}_')
