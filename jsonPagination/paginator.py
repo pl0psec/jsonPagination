@@ -441,10 +441,24 @@ class Paginator:
                     raise DataFetchFailedException(initial_response.status_code, initial_response.url, initial_response.text)
 
                 json_data = initial_response.json()
-                total_count = json_data.get(self.total_count_field)
-                if total_count is None:
-                    self.logger.warning('Total count field "%s" missing, cannot paginate properly.', self.total_count_field)
+                
+                if isinstance(json_data, dict):
+                    data = json_data.get('data', [])
+                    total_count = json_data.get(self.total_count_field, None)
+
+                    if total_count is None:
+                        self.logger.warning('Total count field "%s" missing, cannot paginate properly.', self.total_count_field)
+                        return self.flatten_json(json_data) if flatten_json else data
+
+                    # Proceed with pagination using total_count and data
+                    return {
+                        'total_count': total_count,
+                        'items': self.flatten_json(data) if flatten_json else data
+                    }
+                else:
+                    # self.logger.error('Expected a dictionary but received a different type.')
                     return self.flatten_json(json_data) if flatten_json else json_data
+
 
                 # Set items_per_page based on the initial API call if not set
                 if not self.items_per_page:
