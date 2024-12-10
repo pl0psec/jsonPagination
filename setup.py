@@ -13,7 +13,7 @@ with open('README.md', 'r', encoding='utf-8') as f:
 
 setup(
     name='jsonPagination',
-    version='0.3.4',
+    version='0.3.5',
     author='pl0psec',
     author_email='contact@pl0psec.com',
     description='A versatile JSON data downloader with pagination and multithreading support.',
@@ -22,13 +22,20 @@ setup(
     url='https://github.com/pl0psec/jsonPagination',
     packages=find_packages(),
     install_requires=[
-        'requests',
-        'tqdm'
+        'requests>=2.28.0',
+        'tqdm>=4.65.0'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
+        'Intended Audience :: Developers',        
+        'Topic :: Software Development :: Libraries :: Python Modules',
     ],
     python_requires='>=3.6',
+    keywords=['json', 'pagination', 'downloader', 'multithreading', 'api'],
 )

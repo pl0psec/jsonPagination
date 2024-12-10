@@ -45,6 +45,7 @@ class Paginator:
         retry_delay: int = 30,
         ratelimit: Optional[tuple] = None,
         headers: Optional[Dict[str, str]] = None,
+        proxies: Optional[Dict[str, Optional[str]]] = None,
         logger: Optional[logging.Logger] = None
     ):
         """
@@ -96,6 +97,7 @@ class Paginator:
         self.headers = headers.copy() if headers else {}
         self.retry_lock = Lock()
         self.is_retrying = False
+        self.proxies = proxies  # This will be None by default, allowing system proxies
 
         # Pagination Configuration
         self.pagination_field = current_page_field if current_page_field else current_index_field
@@ -208,7 +210,8 @@ class Paginator:
                 login_url,
                 json=self.auth_data,
                 verify=self.verify_ssl,
-                timeout=self.request_timeout
+                timeout=self.request_timeout,
+                proxies=self.proxies
             )
             self.logger.debug('Login request to %s returned status code %d', login_url, response.status_code)
 
@@ -297,7 +300,7 @@ class Paginator:
         # print(f"Making {method} request to URL: {full_url} with params: {params}")
 
         try:
-            response = session.request(method, full_url, params=params)
+            response = session.request(method, full_url, params=params, proxies=self.proxies)
             self.logger.debug('Requesting URL: %s with status code: %d', response.url, response.status_code)
             return response
         except RequestException as e:
@@ -433,7 +436,7 @@ class Paginator:
 
             # Initial request to get total_count
             try:
-                initial_response = session.get(urljoin(self.base_url, url), params=params)
+                initial_response = session.get(urljoin(self.base_url, url), params=params, proxies=self.proxies)
                 self.logger.debug('Initial request to %s returned status code %d', initial_response.url, initial_response.status_code)
 
                 if initial_response.status_code != 200:
@@ -448,13 +451,8 @@ class Paginator:
 
                     if total_count is None:
                         self.logger.warning('Total count field "%s" missing, cannot paginate properly.', self.total_count_field)
-                        return self.flatten_json(json_data) if flatten_json else data
+                        return self.flatten_json(json_data) if flatten_json else json_data
 
-                    # Proceed with pagination using total_count and data
-                    return {
-                        'total_count': total_count,
-                        'items': self.flatten_json(data) if flatten_json else data
-                    }
                 else:
                     # self.logger.error('Expected a dictionary but received a different type.')
                     return self.flatten_json(json_data) if flatten_json else json_data
