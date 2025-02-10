@@ -340,7 +340,7 @@ class Paginator:
 
                 if response.status_code == 200:
                     data = response.json()
-                    fetched_data = data.get(self.data_field, []) if self.data_field else data
+                    fetched_data = data.get(self.data_field) or [] if self.data_field else data
 
                     with self.retry_lock:
                         results.extend(fetched_data)
