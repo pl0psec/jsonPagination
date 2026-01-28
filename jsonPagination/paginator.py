@@ -368,7 +368,7 @@ class Paginator:
                     if callback:
                         callback(fetched_data)
 
-                    if pbar:
+                    if pbar is not None:
                         pbar.update(len(fetched_data))
 
                     return  # Success, exit the function
