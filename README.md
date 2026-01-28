@@ -177,6 +177,27 @@ print("Downloaded and flattened data:")
 print(results)
 ```
 
+### Pagination Without Total Count
+
+Some APIs do not return a total item count in their responses. In this case, you can use `paginate_until_empty` to keep fetching pages until the `data_field` comes back empty. Pages are still fetched in parallel batches (sized by `max_threads`):
+
+```python
+from jsonPagination.paginator import Paginator
+
+paginator = Paginator(
+    base_url='https://api.example.com',
+    paginate_until_empty=True,  # Stop when data_field returns []
+    data_field='results',       # Field containing the items array
+    current_page_field='page',
+    items_per_page=100,
+    max_threads=5
+)
+
+results = paginator.fetch_all_pages('/api/items')
+
+print(f"Downloaded {len(results)} items")
+```
+
 ### Paginator Parameters
 
 Below is a comprehensive list of all available parameters for the `Paginator` class, along with their explanations:
@@ -198,9 +219,13 @@ Below is a comprehensive list of all available parameters for the `Paginator` cl
 | `data_field`            | `str`                     | `'data'`               | Field name from which to extract the data in the API response. If the API nests data within a specific field, specify it here.                                     |
 | `log_level`             | `str`                     | `'INFO'`               | Logging level for the paginator. Valid options include `'DEBUG'`, `'INFO'`, `'WARNING'`, `'ERROR'`, and `'CRITICAL'`.                                           |
 | `retry_delay`           | `int`                     | `30`                   | Time in seconds to wait before retrying a failed request. Implements exponential backoff for subsequent retries.                                                  |
+| `max_backoff`           | `int`                     | `300`                  | Maximum backoff time in seconds for retries. Caps the exponential backoff to prevent excessively long waits.                                                      |
 | `ratelimit`             | `tuple`, optional         | `None`                 | Rate limit settings as a tuple `(calls, period)` where `calls` is the number of allowed calls in `period` seconds. For example, `(5, 60)` allows 5 calls per minute. |
 | `headers`               | `dict`, optional          | `None`                 | Additional headers to include in the requests. Useful for including API keys, session tokens, or other custom headers required by the API.                          |
+| `proxies`               | `dict`, optional          | `None`                 | Proxy configuration for requests. For example, `{'https': 'http://proxy:8080'}`. When `None`, system proxy settings are used.                                     |
 | `logger`                | `logging.Logger`, optional| `None`                 | Custom logger instance. If not provided, the default logger is used. Allows integration with existing logging configurations in your application.                    |
+| `token_field`           | `str`                     | `'token'`              | Field name for the authentication token in the login response. Change this if your API returns the token under a different key (e.g. `'access_token'`).             |
+| `paginate_until_empty`  | `bool`                    | `False`                | If `True`, pages are fetched until the `data_field` returns an empty list, instead of relying on `total_count_field`. Useful for APIs that do not expose a total item count. Pages are fetched in parallel batches of `max_threads`. |
 
 ## Contributing
 
