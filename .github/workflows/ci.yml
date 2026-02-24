@@ -1,5 +1,12 @@
 name: CI
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [ main, develop ]
@@ -11,18 +18,21 @@ jobs:
   test:
     name: Test Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: setup.py
 
     - name: Install dependencies
       run: |
@@ -37,8 +47,9 @@ jobs:
         echo "✓ Code is compatible with Python 3.10+ (union type hints)"
 
     - name: Lint with pylint
+      continue-on-error: true
       run: |
-        pylint jsonPagination/ --rcfile=.pylintrc || true
+        pylint jsonPagination/ --rcfile=.pylintrc
 
     - name: Check package installation
       run: |
@@ -60,15 +71,18 @@ jobs:
   build:
     name: Build distribution
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: test
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'  # Updated to 3.10 for v1.0.0 compatibility
+        cache: pip
+        cache-dependency-path: setup.py
 
     - name: Install build tools
       run: |
@@ -86,34 +100,44 @@ jobs:
       with:
         name: dist-packages
         path: dist/
+        retention-days: 14
 
   security:
     name: Security checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'  # Updated to 3.10 for v1.0.0 compatibility
+        cache: pip
+        cache-dependency-path: setup.py
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-        pip install safety bandit
+        pip install pip-audit bandit
 
-    - name: Check dependencies with safety
-      run: safety check || true
+    - name: Audit dependencies with pip-audit
+      continue-on-error: true
+      run: pip-audit -f json -o pip-audit-report.json
 
     - name: Security analysis with bandit
-      run: bandit -r jsonPagination/ -f json -o bandit-report.json || true
+      continue-on-error: true
+      run: bandit -r jsonPagination/ -f json -o bandit-report.json
 
     - name: Upload security report
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: security-reports
-        path: bandit-report.json
+        path: |
+          bandit-report.json
+          pip-audit-report.json
+        if-no-files-found: warn
+        retention-days: 14

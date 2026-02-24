@@ -40,24 +40,27 @@ repos:
   - id: pylint
     name: pylint
     entry: pylint
-    language: system
+    language: python
     types: [python]
     args: ['--rcfile=.pylintrc']
+    additional_dependencies: ['pylint', '.']
     require_serial: true
 
   - id: check-package-imports
     name: Check package imports
-    entry: python3
-    language: system
+    entry: python
+    language: python
     pass_filenames: false
     args: ['-c', 'from jsonPagination import Paginator; print("✓ Package imports successfully")']
+    additional_dependencies: ['.']
 
   - id: test-basic-instantiation
     name: Test basic instantiation
-    entry: python3
-    language: system
+    entry: python
+    language: python
     pass_filenames: false
     args: ['-c', 'from jsonPagination import Paginator; p = Paginator(base_url="https://api.example.com"); print("✓ Paginator instantiates successfully")']
+    additional_dependencies: ['.']
 
   - id: compile-examples
     name: Compile example scripts
