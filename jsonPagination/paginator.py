@@ -11,7 +11,7 @@ import time
 from urllib.parse import urljoin
 from datetime import datetime, timedelta
 import math
-from typing import Optional, Dict, Any, List, Callable
+from typing import Any, Callable
 
 import requests
 from requests.exceptions import RequestException
@@ -30,14 +30,14 @@ class Paginator:
     def __init__(
         self,
         base_url: str,
-        login_url: Optional[str] = None,
-        auth_data: Optional[Dict[str, Any]] = None,
-        current_page_field: Optional[str] = None,
-        current_index_field: Optional[str] = None,
+        login_url: str | None = None,
+        auth_data: dict[str, Any] | None = None,
+        current_page_field: str | None = None,
+        current_index_field: str | None = None,
         items_field: str = 'per_page',
         total_count_field: str = 'total',
-        items_per_page: Optional[int] = None,
-        response_items_field: Optional[str] = None,
+        items_per_page: int | None = None,
+        response_items_field: str | None = None,
         max_threads: int = 5,
         download_one_page_only: bool = False,
         verify_ssl: bool = True,
@@ -45,10 +45,10 @@ class Paginator:
         log_level: str = 'INFO',
         retry_delay: int = 30,
         max_backoff: int = 300,
-        ratelimit: Optional[tuple] = None,
-        headers: Optional[Dict[str, str]] = None,
-        proxies: Optional[Dict[str, Optional[str]]] = None,
-        logger: Optional[logging.Logger] = None,
+        ratelimit: tuple | None = None,
+        headers: dict[str, str] | None = None,
+        proxies: dict[str, str | None] | None = None,
+        logger: logging.Logger | None = None,
         token_field: str = 'token',
         paginate_until_empty: bool = False,
     ):
@@ -97,7 +97,7 @@ class Paginator:
         self.login_url = login_url
         self.auth_data = auth_data
         self.token = None
-        self.token_expiry: Optional[datetime] = None  # To cache token expiry
+        self.token_expiry: datetime | None = None  # To cache token expiry
         self.token_field = token_field
 
         # HTTP Configuration
@@ -133,7 +133,7 @@ class Paginator:
         self.ratelimit = ratelimit  # Tuple like (5, 60) for 5 calls per 60 seconds
         if self.ratelimit:
             self.calls, self.period = self.ratelimit
-            self._rate_timestamps: List[float] = []
+            self._rate_timestamps: list[float] = []
 
         # Warn about disabled SSL verification without global side effects
         if not self.verify_ssl:
@@ -168,7 +168,7 @@ class Paginator:
             raise ValueError(f'Invalid log level: {log_level}')
         self.logger.setLevel(numeric_level)
 
-    def flatten_json(self, y: Any) -> Dict[str, Any]:
+    def flatten_json(self, y: Any) -> dict[str, Any]:
         """
         Flattens a nested JSON object into a single level dictionary with keys as paths to nested
         values.
@@ -186,7 +186,7 @@ class Paginator:
             Given a nested JSON object like {"a": {"b": 1, "c": {"d": 2}}},
             the output will be {"a_b": 1, "a_c_d": 2}.
         """
-        def flatten(x: Any, name: str = '') -> Dict[str, Any]:
+        def flatten(x: Any, name: str = '') -> dict[str, Any]:
             if isinstance(x, dict):
                 for a in x:
                     yield from flatten(x[a], f'{name}{a}_')
@@ -293,7 +293,7 @@ class Paginator:
         session: requests.Session,
         method: str,
         url: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         page: int
     ) -> requests.Response:
         """
@@ -331,11 +331,11 @@ class Paginator:
         self,
         session: requests.Session,
         url: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         page: int,
-        results: List[Any],
-        pbar: Optional[tqdm] = None,
-        callback: Optional[Callable[[List[Any]], None]] = None
+        results: list[Any],
+        pbar: tqdm | None = None,
+        callback: Callable[[list[Any]], None] | None = None
     ) -> None:
         """
         Fetches a single page of data from the API and updates the progress bar.
@@ -426,7 +426,7 @@ class Paginator:
             else:
                 self.items_per_page = json_data.get(self.items_field, 50)  # Default to 50
 
-    def _extract_page_data(self, json_data: Any) -> List[Any]:
+    def _extract_page_data(self, json_data: Any) -> list[Any]:
         """Extracts the data list from a JSON response using data_field."""
         if self.data_field:
             data = json_data.get(self.data_field) if isinstance(json_data, dict) else json_data
@@ -439,11 +439,11 @@ class Paginator:
         self,
         session: requests.Session,
         url: str,
-        params: Dict[str, Any],
-        initial_data: List[Any],
+        params: dict[str, Any],
+        initial_data: list[Any],
         flatten_json: bool,
-        callback: Optional[Callable[[List[Any]], None]]
-    ) -> List[Any]:
+        callback: Callable[[list[Any]], None] | None
+    ) -> list[Any]:
         """
         Fetches pages in parallel batches until a page returns an empty data field.
 
@@ -467,7 +467,7 @@ class Paginator:
         Returns:
             list: All fetched items across all pages.
         """
-        results: List[Any] = list(initial_data)
+        results: list[Any] = list(initial_data)
 
         if callback and initial_data:
             callback(initial_data)
@@ -485,11 +485,11 @@ class Paginator:
                 batch_end = page + self.max_threads
 
                 # Each page gets its own result list so we can inspect per-page
-                page_results_map: Dict[int, List[Any]] = {}
+                page_results_map: dict[int, list[Any]] = {}
                 future_to_page = {}
 
                 for p in range(batch_start, batch_end):
-                    page_data: List[Any] = []
+                    page_data: list[Any] = []
                     page_results_map[p] = page_data
 
                     page_params = {
@@ -538,11 +538,11 @@ class Paginator:
     def fetch_all_pages(
         self,
         url: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         flatten_json: bool = False,
-        headers: Optional[Dict[str, str]] = None,
-        callback: Optional[Callable[[List[Any]], None]] = None
-    ) -> List[Any]:
+        headers: dict[str, str] | None = None,
+        callback: Callable[[list[Any]], None] | None = None
+    ) -> list[Any]:
         """
         Fetches all pages of data from a paginated API endpoint, optionally flattening the JSON
         structure of the results. Invokes a callback function after each page if provided.
@@ -628,7 +628,7 @@ class Paginator:
                 self.logger.info('Total items to download: %d | Number of pages to fetch: %d', total_count, total_pages)
 
                 # Start with page 1 data already fetched
-                results: List[Any] = list(initial_data)
+                results: list[Any] = list(initial_data)
 
                 if callback and initial_data:
                     callback(initial_data)
