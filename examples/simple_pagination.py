@@ -50,7 +50,7 @@ def main():
         # -----------------------------
         # Example 1: API with Pagination
         # -----------------------------
-        print("Fetching paginated user data from Reqres.in...\n")
+        print('Fetching paginated user data from Reqres.in...\n')
         results_paginated = paginator.fetch_all_pages(
             url='/api/users',                             # Relative URL for the paginated endpoint
             params={'delay': 1},                          # Optional: Add delay to simulate network latency
@@ -85,7 +85,7 @@ def main():
             # No authentication required for Reqres.in, so login_url and auth_data are omitted
         )
 
-        print("\nFetching single user data from Reqres.in...\n")
+        print('\nFetching single user data from Reqres.in...\n')
         results_single = paginator_single.fetch_all_pages(
             url='/api/users/2',                            # Relative URL for the single user endpoint
             params={},                                     # No additional params needed

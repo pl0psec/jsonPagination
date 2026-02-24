@@ -1,11 +1,62 @@
-# jsonPagination 
+# jsonPagination
 
-[![Python](https://img.shields.io/badge/Python-3.9-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![PyLint](https://img.shields.io/badge/PyLint-9.73-green?logo=python&logoColor=white)[![GitHub release (latest by date)](https://img.shields.io/github/v/release/pl0psec/jsonPagination)](https://github.com/pl0psec/jsonPagination/releases)
 [![PyPI version](https://badge.fury.io/py/jsonPagination.svg)](https://badge.fury.io/py/jsonPagination)
+[![Downloads](https://pepy.tech/badge/jsonpagination)](https://pepy.tech/project/jsonpagination)
+[![Downloads](https://pepy.tech/badge/jsonpagination/month)](https://pepy.tech/project/jsonpagination)
+[![CI](https://github.com/pl0psec/jsonPagination/actions/workflows/ci.yml/badge.svg)](https://github.com/pl0psec/jsonPagination/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/pl0psec/jsonPagination)](https://github.com/pl0psec/jsonPagination/releases)
+[![GitHub stars](https://img.shields.io/github/stars/pl0psec/jsonPagination?style=social)](https://github.com/pl0psec/jsonPagination)
+[![GitHub issues](https://img.shields.io/github/issues/pl0psec/jsonPagination)](https://github.com/pl0psec/jsonPagination/issues)
+![PyLint](https://img.shields.io/badge/PyLint-9.73-green?logo=python&logoColor=white)
 
 `jsonPagination` is a Python library designed to simplify the process of fetching and paginating JSON data from APIs. It supports authentication, multithreading for efficient data retrieval, and handling of pagination logic, making it ideal for working with large datasets or APIs with rate limits.
+
+> **v1.0.0 Breaking Change**: This version requires **Python 3.10+** for modern type hints and performance improvements. If you need Python 3.7-3.9 support, use version `0.4.0`.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Basic Pagination](#basic-pagination)
+  - [Pagination with Authentication](#pagination-with-authentication)
+  - [Rate Limit Example](#rate-limit-example)
+  - [Advanced Configuration](#advanced-configuration)
+  - [Pagination Without Total Count](#pagination-without-total-count)
+- [Paginator Parameters](#paginator-parameters)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Quick Start
+
+Get started with jsonPagination in just a few lines:
+
+```python
+from jsonPagination.paginator import Paginator
+
+# Basic usage
+paginator = Paginator(base_url='https://api.example.com')
+data = paginator.fetch_all_pages('/endpoint')
+
+# With authentication
+paginator = Paginator(
+    base_url='https://api.example.com',
+    login_url='/api/login',
+    auth_data={'username': 'user', 'password': 'pass'}
+)
+data = paginator.fetch_all_pages('/protected/endpoint')
+
+# With rate limiting
+paginator = Paginator(
+    base_url='https://api.example.com',
+    ratelimit=(10, 60),  # 10 requests per 60 seconds
+    max_threads=2
+)
+data = paginator.fetch_all_pages('/endpoint')
+```
 
 ## Features
 
@@ -230,6 +281,40 @@ Below is a comprehensive list of all available parameters for the `Paginator` cl
 ## Contributing
 
 We welcome contributions to `jsonPagination`! Please open an issue or submit a pull request for any features, bug fixes, or documentation improvements.
+
+### Development Setup
+
+1. Clone the repository and install dependencies:
+   ```bash
+   pip install -e .
+   pip install pylint vermin pre-commit
+   ```
+
+2. Install pre-commit hooks:
+   ```bash
+   pre-commit install
+   ```
+
+3. Run pre-commit checks manually:
+   ```bash
+   pre-commit run --all-files
+   ```
+
+### Python Version Compatibility
+
+This package requires **Python 3.10+** for modern features:
+- **PEP 604**: Union type syntax (`str | None` instead of `Optional[str]`)
+- **Performance**: Significant speedups in Python 3.11+ (10-30% faster)
+- **Maintainability**: Cleaner, more readable type hints
+
+Dependencies:
+- `requests>=2.28.0` (requires Python ≥3.7)
+- `tqdm>=4.65.0` (requires Python ≥3.7)
+
+**Migration from 0.x**:
+- If using Python 3.7-3.9, stay on version `0.4.0`
+- Python 3.10+ users get better performance and modern syntax
+- No API changes, only internal type hint improvements
 
 ## License
 

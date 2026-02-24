@@ -1,27 +1,70 @@
 repos:
+# Basic file checks
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v4.6.0
   hooks:
-  #   - id: trailing-whitespace
   - id: end-of-file-fixer
+  - id: trailing-whitespace
   - id: check-yaml
   - id: check-added-large-files
   - id: check-merge-conflict
-  - id: check-ast
+  - id: check-ast  # Syntax validation
   - id: double-quote-string-fixer
   - id: debug-statements
   - id: check-toml
   - id: check-json
   - id: check-xml
+  - id: name-tests-test
+    args: ['--pytest-test-first']
 
-# -   repo: https://github.com/asottile/reorder-python-imports
-#     rev: v3.12.0
-#     hooks:
-#     -   id: reorder-python-imports
-
+# Security checks
 - repo: https://github.com/gitleaks/gitleaks
   rev: v8.18.4
   hooks:
-  # Detects sensitive information like passwords, API keys, etc.
   - id: gitleaks
     entry: gitleaks detect -v --no-git
+
+# Python version verification
+- repo: https://github.com/netromdk/vermin
+  rev: v1.6.0
+  hooks:
+  - id: vermin
+    name: Verify minimum Python version
+    # Enforcing Python 3.10+ for modern type hints (PEP 604 union types)
+    args: ['--target=3.10-', '--violations', '--no-tips', '--backport=typing', 'jsonPagination/']
+    pass_filenames: false
+
+# Python code quality (matches CI)
+- repo: local
+  hooks:
+  - id: pylint
+    name: pylint
+    entry: pylint
+    language: python
+    types: [python]
+    args: ['--rcfile=.pylintrc']
+    additional_dependencies: ['pylint', '.']
+    require_serial: true
+
+  - id: check-package-imports
+    name: Check package imports
+    entry: python
+    language: python
+    pass_filenames: false
+    args: ['-c', 'from jsonPagination import Paginator; print("✓ Package imports successfully")']
+    additional_dependencies: ['.']
+
+  - id: test-basic-instantiation
+    name: Test basic instantiation
+    entry: python
+    language: python
+    pass_filenames: false
+    args: ['-c', 'from jsonPagination import Paginator; p = Paginator(base_url="https://api.example.com"); print("✓ Paginator instantiates successfully")']
+    additional_dependencies: ['.']
+
+  - id: compile-examples
+    name: Compile example scripts
+    entry: bash
+    language: system
+    pass_filenames: false
+    args: ['-c', 'python3 -m py_compile examples/*.py && echo "✓ All examples compile successfully"']
